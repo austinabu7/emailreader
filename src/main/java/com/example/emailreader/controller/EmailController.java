@@ -4,14 +4,11 @@ import com.example.emailreader.dto.AuthRequest;
 import com.example.emailreader.dto.EmailDTO;
 import com.example.emailreader.service.OutlookEmailService;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import reactor.core.publisher.Flux;
 
 import java.util.List;
 
-// src/main/java/com/example/controller/EmailController.java
 @RestController
 @RequestMapping("/api/emails")
 public class EmailController {
@@ -19,15 +16,19 @@ public class EmailController {
     @Autowired
     private OutlookEmailService outlookEmailService;
 
-    @PostMapping("/authenticate")
-    public ResponseEntity<String> authenticate(@RequestBody AuthRequest request) {
+    @PostMapping("/authenticate-basic")
+    public ResponseEntity<String> authenticateBasic(@RequestBody AuthRequest request) {
         try {
-            // Token should be obtained via OAuth2 flow
-            outlookEmailService.authenticateWithToken(request.getToken());
-            return ResponseEntity.ok("Authenticated with Microsoft Graph successfully");
+            outlookEmailService.authenticateBasic(request.getEmail(), request.getPassword());
+            return ResponseEntity.ok("Authenticated with EWS successfully");
         } catch (Exception e) {
             return ResponseEntity.status(500).body("Authentication failed: " + e.getMessage());
         }
+    }
+
+    @PostMapping("/authenticate")
+    public ResponseEntity<String> authenticate(@RequestBody AuthRequest request) {
+        return authenticateBasic(request);
     }
 
     @GetMapping("/inbox")

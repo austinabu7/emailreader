@@ -1,88 +1,97 @@
 package com.example.emailreader.service;
 
-import com.azure.identity.ClientSecretCredential;
-import com.azure.identity.ClientSecretCredentialBuilder;
-import com.microsoft.graph.authentication.TokenCredentialAuthProvider;
-import com.microsoft.graph.requests.GraphServiceClient;
-import com.microsoft.graph.models.Message;
-import com.microsoft.graph.requests.MessageCollectionPage;
+import com.example.emailreader.config.ApplicationProperties;
 import com.example.emailreader.dto.EmailDTO;
+import jakarta.annotation.PostConstruct;
+import microsoft.exchange.webservices.data.core.ExchangeService;
+import microsoft.exchange.webservices.data.core.enumeration.misc.ExchangeVersion;
+import microsoft.exchange.webservices.data.core.enumeration.property.WellKnownFolderName;
+import microsoft.exchange.webservices.data.core.service.item.EmailMessage;
+import microsoft.exchange.webservices.data.core.service.item.Item;
+import microsoft.exchange.webservices.data.core.service.schema.ItemSchema;
+import microsoft.exchange.webservices.data.credential.WebCredentials;
+import microsoft.exchange.webservices.data.property.complex.MessageBody;
+import microsoft.exchange.webservices.data.core.PropertySet;
+import microsoft.exchange.webservices.data.search.FindItemsResults;
+import microsoft.exchange.webservices.data.search.ItemView;
+import microsoft.exchange.webservices.data.search.filter.SearchFilter;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-import java.util.*;
-import com.microsoft.graph.authentication.BearerTokenAuthenticationProvider;
+
+import java.net.URI;
+import java.util.ArrayList;
+import java.util.List;
 
 @Service
 public class OutlookEmailService {
 
-    private GraphServiceClient graphClient;
-    private String userEmail;
+    @Autowired
+    private ApplicationProperties properties;
 
-    // Option 1: Authenticate with Bearer Token
-    public void authenticateWithToken(String token) {
-        final BearerTokenAuthenticationProvider authProvider =
-                new BearerTokenAuthenticationProvider(() -> token);
+    private ExchangeService exchangeService;
 
-        this.graphClient = GraphServiceClient.builder()
-                .authenticationProvider(authProvider)
-                .buildClient();
+    @PostConstruct
+    public void init() {
+        try {
+            if (properties.getEmail() != null && properties.getPassword() != null) {
+                authenticateBasic(properties.getEmail(), properties.getPassword());
+            }
+        } catch (Exception e) {
+            // Service will be authenticated manually via /authenticate-basic if auto-init fails
+        }
     }
 
-    // Option 2: Authenticate with Client Secret (Recommended)
-    public void authenticateWithAzure(String clientId, String clientSecret, String tenantId) {
-        final ClientSecretCredential clientSecretCredential = new ClientSecretCredentialBuilder()
-                .clientId(clientId)
-                .clientSecret(clientSecret)
-                .tenantId(tenantId)
-                .build();
-
-        final List<String> scopes = new ArrayList<>();
-        scopes.add("https://graph.microsoft.com/.default");
-
-        final TokenCredentialAuthProvider authProvider =
-                new TokenCredentialAuthProvider(scopes, clientSecretCredential);
-
-        this.graphClient = GraphServiceClient.builder()
-                .authenticationProvider(authProvider)
-                .buildClient();
+    public void authenticateBasic(String email, String password) throws Exception {
+        ExchangeService service = new ExchangeService(ExchangeVersion.Exchange2010_SP2);
+        service.setCredentials(new WebCredentials(email, password));
+        String ewsUrl = (properties.getExchangeUrl() != null && !properties.getExchangeUrl().isEmpty())
+                ? properties.getExchangeUrl()
+                : "https://outlook.office365.com/ews/exchange.asmx";
+        service.setUrl(new URI(ewsUrl));
+        this.exchangeService = service;
     }
 
     public List<EmailDTO> getInboxEmails(int limit) throws Exception {
-        MessageCollectionPage messages = graphClient.me()
-                .mailFolders("inbox")
-                .messages()
-                .buildRequest()
-                .top(limit)
-                .select("subject,from,receivedDateTime,bodyPreview,body")
-                .orderBy("receivedDateTime DESC")
-                .get();
+        if (exchangeService == null) {
+            throw new IllegalStateException("Not authenticated. Please call /authenticate-basic first.");
+        }
+        FindItemsResults<Item> findResults = exchangeService.findItems(
+                WellKnownFolderName.Inbox, new ItemView(limit));
+        exchangeService.loadPropertiesForItems(findResults, PropertySet.FirstClassProperties);
 
         List<EmailDTO> emailList = new ArrayList<>();
-        for (Message msg : messages.getCurrentPage()) {
-            emailList.add(mapToDTO(msg));
+        for (Item item : findResults) {
+            if (item instanceof EmailMessage) {
+                emailList.add(mapToDTO((EmailMessage) item));
+            }
         }
         return emailList;
     }
 
     public List<EmailDTO> searchEmails(String query) throws Exception {
-        MessageCollectionPage messages = graphClient.me()
-                .messages()
-                .buildRequest()
-                .search("\"" + query + "\"")
-                .get();
+        if (exchangeService == null) {
+            throw new IllegalStateException("Not authenticated. Please call /authenticate-basic first.");
+        }
+        SearchFilter searchFilter = new SearchFilter.ContainsSubstring(ItemSchema.Subject, query);
+        FindItemsResults<Item> findResults = exchangeService.findItems(
+                WellKnownFolderName.Inbox, searchFilter, new ItemView(50));
+        exchangeService.loadPropertiesForItems(findResults, PropertySet.FirstClassProperties);
 
         List<EmailDTO> emailList = new ArrayList<>();
-        for (Message msg : messages.getCurrentPage()) {
-            emailList.add(mapToDTO(msg));
+        for (Item item : findResults) {
+            if (item instanceof EmailMessage) {
+                emailList.add(mapToDTO((EmailMessage) item));
+            }
         }
         return emailList;
     }
 
-    private EmailDTO mapToDTO(Message msg) {
+    private EmailDTO mapToDTO(EmailMessage msg) throws Exception {
         return EmailDTO.builder()
-                .subject(msg.subject)
-                .from(msg.from != null ? msg.from.emailAddress.address : "Unknown")
-                .received(msg.receivedDateTime)
-                .body(msg.body != null ? msg.body.content : "")
+                .subject(msg.getSubject())
+                .from(msg.getFrom() != null ? msg.getFrom().getAddress() : "Unknown")
+                .received(msg.getDateTimeReceived())
+                .body(MessageBody.getStringFromMessageBody(msg.getBody()))
                 .build();
     }
 }
