@@ -4,19 +4,17 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+
+import java.util.Date;
 import java.util.List;
 
+// src/main/java/com/example/dto/EmailDTO.java
 @Data
-@NoArgsConstructor
-@AllArgsConstructor
 @Builder
 public class EmailDTO {
-    private String id;
-    private String sender;
     private String subject;
+    private String from;
+    private Date received;
     private String body;
-    private String receivedTime;
-    private List<String> attachmentNames;
-    private boolean hasAttachments;
-    private String conversationId;
 }
+

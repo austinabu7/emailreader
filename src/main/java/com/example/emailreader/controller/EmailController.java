@@ -1,32 +1,53 @@
 package com.example.emailreader.controller;
 
+import com.example.emailreader.dto.AuthRequest;
 import com.example.emailreader.dto.EmailDTO;
-import com.example.emailreader.service.EmailService;
+import com.example.emailreader.service.OutlookEmailService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 
 import java.util.List;
 
+// src/main/java/com/example/controller/EmailController.java
 @RestController
-@RequestMapping("/api")
+@RequestMapping("/api/emails")
 public class EmailController {
 
-    private final EmailService emailService;
+    @Autowired
+    private OutlookEmailService outlookEmailService;
 
-    public EmailController(EmailService emailService) {
-        this.emailService = emailService;
+    @PostMapping("/authenticate")
+    public ResponseEntity<String> authenticate(@RequestBody AuthRequest request) {
+        try {
+            // Token should be obtained via OAuth2 flow
+            outlookEmailService.authenticateWithToken(request.getToken());
+            return ResponseEntity.ok("Authenticated with Microsoft Graph successfully");
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body("Authentication failed: " + e.getMessage());
+        }
     }
 
-    @GetMapping("/emails")
-    public List<EmailDTO> getEmails() {
-        return emailService.getAllEmails();
+    @GetMapping("/inbox")
+    public ResponseEntity<List<EmailDTO>> getInboxEmails(
+            @RequestParam(defaultValue = "10") int limit) {
+        try {
+            List<EmailDTO> emails = outlookEmailService.getInboxEmails(limit);
+            return ResponseEntity.ok(emails);
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(null);
+        }
     }
 
-    @GetMapping(value = "/emails/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public Flux<EmailDTO> streamEmails() {
-        return emailService.getNewEmailsStream();
+    @GetMapping("/search")
+    public ResponseEntity<List<EmailDTO>> searchEmails(@RequestParam String query) {
+        try {
+            List<EmailDTO> emails = outlookEmailService.searchEmails(query);
+            return ResponseEntity.ok(emails);
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(null);
+        }
     }
 }
