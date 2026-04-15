@@ -15,6 +15,8 @@ import microsoft.exchange.webservices.data.core.PropertySet;
 import microsoft.exchange.webservices.data.search.FindItemsResults;
 import microsoft.exchange.webservices.data.search.ItemView;
 import microsoft.exchange.webservices.data.search.filter.SearchFilter;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -24,6 +26,10 @@ import java.util.List;
 
 @Service
 public class OutlookEmailService {
+
+    private static final int DEFAULT_SEARCH_LIMIT = 50;
+
+    private static final Logger logger = LoggerFactory.getLogger(OutlookEmailService.class);
 
     @Autowired
     private ApplicationProperties properties;
@@ -37,7 +43,7 @@ public class OutlookEmailService {
                 authenticateBasic(properties.getEmail(), properties.getPassword());
             }
         } catch (Exception e) {
-            // Service will be authenticated manually via /authenticate-basic if auto-init fails
+            logger.warn("Auto-authentication from properties failed; manual authentication required via /authenticate-basic", e);
         }
     }
 
@@ -53,7 +59,9 @@ public class OutlookEmailService {
 
     public List<EmailDTO> getInboxEmails(int limit) throws Exception {
         if (exchangeService == null) {
-            throw new IllegalStateException("Not authenticated. Please call /authenticate-basic first.");
+            throw new IllegalStateException(
+                    "Not authenticated. Call /authenticate-basic with valid Exchange credentials, " +
+                    "or set outlook.email and outlook.password in application.properties.");
         }
         FindItemsResults<Item> findResults = exchangeService.findItems(
                 WellKnownFolderName.Inbox, new ItemView(limit));
@@ -68,13 +76,20 @@ public class OutlookEmailService {
         return emailList;
     }
 
+    /**
+     * Searches inbox emails whose subject contains the given query string.
+     * Note: search is limited to the Subject field; body/sender searches
+     * are not performed to keep the implementation simple.
+     */
     public List<EmailDTO> searchEmails(String query) throws Exception {
         if (exchangeService == null) {
-            throw new IllegalStateException("Not authenticated. Please call /authenticate-basic first.");
+            throw new IllegalStateException(
+                    "Not authenticated. Call /authenticate-basic with valid Exchange credentials, " +
+                    "or set outlook.email and outlook.password in application.properties.");
         }
         SearchFilter searchFilter = new SearchFilter.ContainsSubstring(ItemSchema.Subject, query);
         FindItemsResults<Item> findResults = exchangeService.findItems(
-                WellKnownFolderName.Inbox, searchFilter, new ItemView(50));
+                WellKnownFolderName.Inbox, searchFilter, new ItemView(DEFAULT_SEARCH_LIMIT));
         exchangeService.loadPropertiesForItems(findResults, PropertySet.FirstClassProperties);
 
         List<EmailDTO> emailList = new ArrayList<>();
@@ -91,7 +106,7 @@ public class OutlookEmailService {
                 .subject(msg.getSubject())
                 .from(msg.getFrom() != null ? msg.getFrom().getAddress() : "Unknown")
                 .received(msg.getDateTimeReceived())
-                .body(MessageBody.getStringFromMessageBody(msg.getBody()))
+                .body(msg.getBody() != null ? MessageBody.getStringFromMessageBody(msg.getBody()) : "")
                 .build();
     }
 }

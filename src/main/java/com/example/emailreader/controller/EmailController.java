@@ -3,6 +3,8 @@ package com.example.emailreader.controller;
 import com.example.emailreader.dto.AuthRequest;
 import com.example.emailreader.dto.EmailDTO;
 import com.example.emailreader.service.OutlookEmailService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -13,6 +15,8 @@ import java.util.List;
 @RequestMapping("/api/emails")
 public class EmailController {
 
+    private static final Logger logger = LoggerFactory.getLogger(EmailController.class);
+
     @Autowired
     private OutlookEmailService outlookEmailService;
 
@@ -22,7 +26,8 @@ public class EmailController {
             outlookEmailService.authenticateBasic(request.getEmail(), request.getPassword());
             return ResponseEntity.ok("Authenticated with EWS successfully");
         } catch (Exception e) {
-            return ResponseEntity.status(500).body("Authentication failed: " + e.getMessage());
+            logger.error("EWS authentication failed", e);
+            return ResponseEntity.status(500).body("Authentication failed. Please check your credentials.");
         }
     }
 
@@ -38,6 +43,7 @@ public class EmailController {
             List<EmailDTO> emails = outlookEmailService.getInboxEmails(limit);
             return ResponseEntity.ok(emails);
         } catch (Exception e) {
+            logger.error("Failed to fetch inbox emails", e);
             return ResponseEntity.status(500).body(null);
         }
     }
@@ -48,6 +54,7 @@ public class EmailController {
             List<EmailDTO> emails = outlookEmailService.searchEmails(query);
             return ResponseEntity.ok(emails);
         } catch (Exception e) {
+            logger.error("Failed to search emails for query: {}", query, e);
             return ResponseEntity.status(500).body(null);
         }
     }
