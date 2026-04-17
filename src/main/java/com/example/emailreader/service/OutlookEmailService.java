@@ -1,149 +1,71 @@
 package com.example.emailreader.service;
 
-
 import com.example.emailreader.dto.EmailDTO;
-import microsoft.exchange.webservices.data.core.enumeration.misc.WellKnownFolderName;
-import microsoft.exchange.webservices.data.core.enumeration.search.LogicalOperator;
-import microsoft.exchange.webservices.data.core.service.item.EmailMessage;
-import microsoft.exchange.webservices.data.property.complex.ItemCollection;
-import microsoft.exchange.webservices.data.search.FindItemsResults;
-import microsoft.exchange.webservices.data.search.filter.SearchFilter;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Service;
-import reactor.core.publisher.Flux;
-import reactor.core.scheduler.Schedulers;
+import com.microsoft.graph.models.Message;
+import com.microsoft.graph.requests.GraphServiceClient;
+import com.microsoft.graph.requests.MessageCollectionPage;
 
-import jakarta.annotation.PostConstruct;
-import java.text.SimpleDateFormat;
-import java.util.*;
-import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.ArrayList;
+import java.util.List;
 
+// src/main/java/com/example/service/OutlookEmailService.java
 @Service
-public class EmailService {
-    private static final Logger logger = LoggerFactory.getLogger(EmailService.class);
+public class OutlookEmailService {
 
-    private final EWSConnectionService ewsConnectionService;
-    private final List<EmailDTO> emails = new CopyOnWriteArrayList<>();
-    private Flux<EmailDTO> emailFlux;
+    private GraphServiceClient graphClient;
+    private String userEmail;
 
-    public EmailService(EWSConnectionService ewsConnectionService) {
-        this.ewsConnectionService = ewsConnectionService;
+    // Initialize with OAuth2 token
+    public void authenticateWithToken(String token) {
+        List<String> scopes = new ArrayList<>();
+        scopes.add("https://graph.microsoft.com/.default");
+
+        final TokenCredentialAuthProvider authProvider =
+                new TokenCredentialAuthProvider(scopes,
+                        new StaticTokenCredentialProvider(new AccessToken(token, OffsetDateTime.now().plusHours(1))));
+
+        this.graphClient = GraphServiceClient.builder()
+                .authenticationProvider(authProvider)
+                .buildClient();
     }
 
-    @PostConstruct
-    public void initialize() {
-        // Load initial emails
-        loadEmails();
+    public List<EmailDTO> getInboxEmails(int limit) throws Exception {
+        MessageCollectionPage messages = graphClient.me()
+                .mailFolders("inbox")
+                .messages()
+                .buildRequest()
+                .top(limit)
+                .select("subject,from,receivedDateTime,bodyPreview,body")
+                .orderBy("receivedDateTime DESC")
+                .get();
 
-        // Setup streaming for real-time updates
-        setupEmailStream();
-
-        // Start EWS subscription
-        ewsConnectionService.startStreamingSubscription();
-    }
-
-    private void setupEmailStream() {
-        emailFlux = Flux.create(sink -> {
-            ewsConnectionService.setEventSink(sink);
-
-            // Listen for new email notifications and fetch emails
-            Flux.interval(java.time.Duration.ofSeconds(5))
-                    .subscribeOn(Schedulers.boundedElastic())
-                    .subscribe(tick -> {
-                        try {
-                            loadEmails();
-                        } catch (Exception e) {
-                            logger.error("Error loading emails", e);
-                        }
-                    });
-        }).share();
-    }
-
-    public void loadEmails() {
-        try {
-            logger.info("Loading emails from inbox");
-
-            var exchangeService = ewsConnectionService.getExchangeService();
-
-            // Create search filter for unread emails (optional)
-            SearchFilter.SearchFilterCollection searchFilter = new SearchFilter.SearchFilterCollection(
-                    LogicalOperator.And,
-                    new SearchFilter.IsEqualTo(
-                            microsoft.exchange.webservices.data.core.PropertySet.FirstClassProperties,
-                            "true"
-                    )
-            );
-
-            // Find items
-            FindItemsResults<com.microsoft.exchange.webservices.data.core.service.item.Item> findResults =
-                    exchangeService.findItems(
-                            WellKnownFolderName.Inbox,
-                            new SearchFilter.SearchFilterCollection(LogicalOperator.And),
-                            null,
-                            0,
-                            100
-                    );
-
-            emails.clear();
-
-            for (com.microsoft.exchange.webservices.data.core.service.item.Item item : findResults) {
-                if (item instanceof EmailMessage) {
-                    EmailMessage emailMessage = (EmailMessage) item;
-                    emailMessage.load();
-
-                    EmailDTO dto = mapEmailToDTO(emailMessage);
-                    emails.add(0, dto); // Add to front
-                }
-            }
-
-            logger.info("Loaded {} emails", emails.size());
-        } catch (Exception e) {
-            logger.error("Error loading emails", e);
+        List<EmailDTO> emailList = new ArrayList<>();
+        for (Message msg : messages.getCurrentPage()) {
+            emailList.add(mapToDTO(msg));
         }
+        return emailList;
     }
 
-    private EmailDTO mapEmailToDTO(EmailMessage emailMessage) throws Exception {
-        List<String> attachmentNames = new ArrayList<>();
+    public List<EmailDTO> searchEmails(String query) throws Exception {
+        MessageCollectionPage messages = graphClient.me()
+                .messages()
+                .buildRequest()
+                .search("\"" + query + "\"")
+                .get();
 
-        if (emailMessage.getHasAttachments()) {
-            for (var attachment : emailMessage.getAttachments()) {
-                attachmentNames.add(attachment.getName());
-            }
+        List<EmailDTO> emailList = new ArrayList<>();
+        for (Message msg : messages.getCurrentPage()) {
+            emailList.add(mapToDTO(msg));
         }
+        return emailList;
+    }
 
-        String sender = emailMessage.getFrom() != null ?
-                emailMessage.getFrom().getAddress() : "Unknown";
-
-        String body = emailMessage.getBody().toString();
-        if (body.length() > 500) {
-            body = body.substring(0, 500) + "...";
-        }
-
-        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-        String receivedTime = sdf.format(emailMessage.getDateTimeReceived());
-
+    private EmailDTO mapToDTO(Message msg) {
         return EmailDTO.builder()
-                .id(emailMessage.getId().getUniqueId())
-                .sender(sender)
-                .subject(emailMessage.getSubject())
-                .body(body)
-                .receivedTime(receivedTime)
-                .attachmentNames(attachmentNames)
-                .hasAttachments(emailMessage.getHasAttachments())
-                .conversationId(emailMessage.getConversationId() != null ?
-                        emailMessage.getConversationId().toString() : null)
+                .subject(msg.subject)
+                .from(msg.from != null ? msg.from.emailAddress.address : "Unknown")
+                .received(msg.receivedDateTime)
+                .body(msg.body != null ? msg.body.content : "")
                 .build();
-    }
-
-    public List<EmailDTO> getAllEmails() {
-        return new ArrayList<>(emails);
-    }
-
-    public Flux<EmailDTO> getNewEmailsStream() {
-        return emailFlux.map(event -> {
-            loadEmails();
-            return emails.isEmpty() ? null : emails.get(0);
-        }).filter(Objects::nonNull);
     }
 }
