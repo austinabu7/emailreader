@@ -4,5 +4,7 @@ import lombok.Data;
 
 @Data
 public class AuthRequest {
-    private String token; // OAuth2 token from Azure AD
+    private String clientId;
+    private String clientSecret;
+    private String tenantId;
 }
