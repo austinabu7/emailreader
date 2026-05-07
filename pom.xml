@@ -36,6 +36,13 @@
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
 
+        <!-- Jackson for JSON parsing -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>2.15.2</version>
+        </dependency>
+
         <!-- Spring Boot WebFlux (for Flux/SSE) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

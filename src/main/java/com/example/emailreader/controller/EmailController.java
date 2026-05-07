@@ -59,7 +59,9 @@ public class EmailController {
             @RequestParam(defaultValue = "10") int limit) {
         try {
             List<EmailDTO> emails = outlookEmailService.getInboxEmails(limit);
-            return ResponseEntity.ok(emails);
+            return ResponseEntity.ok()
+                    .header("Content-Type", "application/json")  // ✅ Add this
+                    .body(emails);
         } catch (Exception e) {
             return ResponseEntity.status(500).body(null);
         }
@@ -70,7 +72,9 @@ public class EmailController {
     public ResponseEntity<List<EmailDTO>> searchEmails(@RequestParam String query) {
         try {
             List<EmailDTO> emails = outlookEmailService.searchEmails(query);
-            return ResponseEntity.ok(emails);
+            return ResponseEntity.ok()
+                    .header("Content-Type", "application/json")  // ✅ Add this
+                    .body(emails);
         } catch (Exception e) {
             return ResponseEntity.status(500).body(null);
         }
